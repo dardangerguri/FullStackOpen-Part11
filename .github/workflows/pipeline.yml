@@ -1,0 +1,57 @@
+name: Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize]
+
+jobs:
+  simple_deployment_pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install backend dependencies
+        run: npm install
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: ./frontend
+      - name: Lint backend
+        run: npm run lint
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: ./frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+      - name: Build UI for production
+        run: npm run build:ui
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+      - name: Run end-to-end tests
+        run: npm run test:e2e
+        env:
+          NODE_ENV: test
+          TEST_MONGODB_URI: ${{ secrets.TEST_MONGODB_URI }}
+          PORT: 3001
+      - name: Trigger deployment
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '#skip') }}
+        run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+  tag_release:
+    needs: [simple_deployment_pipeline]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '#skip') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@4ed44965e0db8dab2b466a16da04aec3cc312fd8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          DRY_RUN: false
